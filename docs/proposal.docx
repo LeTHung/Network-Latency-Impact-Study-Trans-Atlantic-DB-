@@ -1,0 +1,399 @@
+# Distributed Database Project Proposal
+
+## Project ID & Category
+
+**Project ID:** #93
+**Category:** Network Latency Impact Study
+**Tên đề tài:** Nghiên cứu tác động của Network Latency đến Distributed Transaction sử dụng Two-Phase Commit
+**Tên tiếng Anh:** Evaluating Network Latency Impact on Distributed Transactions Using Two-Phase Commit
+
+---
+
+## 1. Project Identity
+
+
+**Members:**
+
+* Lê Tiến Hưng
+
+**Project Title:**
+
+Nghiên cứu tác động của Network Latency đến Distributed Transaction sử dụng Two-Phase Commit
+
+---
+
+## 2. Objective & Problem Statement
+
+### The Why
+
+Trong hệ cơ sở dữ liệu phân tán, dữ liệu không nằm tập trung ở một máy duy nhất mà được phân bố trên nhiều site hoặc node khác nhau. Khi một Transaction cần cập nhật dữ liệu ở nhiều node, hệ thống phải có cơ chế phối hợp để đảm bảo tính nhất quán dữ liệu.
+
+Vấn đề chính của đề tài là nghiên cứu mức độ ảnh hưởng của **Network Latency** đến thời gian thực thi **Distributed Transaction**. Trong môi trường phân tán, đặc biệt khi các node nằm xa nhau về mặt địa lý, thời gian truyền thông giữa các node có thể chiếm phần lớn tổng thời gian giao dịch.
+
+Đề tài tập trung vào câu hỏi:
+
+> Khi Latency tăng từ mức Local đến Regional và Global, thời gian thực thi Transaction và Cost of Coordination thay đổi như thế nào?
+
+### Core Logic
+
+Dự án triển khai giao thức **Two-Phase Commit – 2PC** để đảm bảo tính Atomicity cho Distributed Transaction.
+
+Hệ thống gồm:
+
+* Một **Coordinator**
+* Ba **Participant Node**: Node A, Node B, Node C
+
+Mỗi Transaction được xử lý qua hai phase:
+
+1. **Prepare / Voting Phase**
+2. **Commit / Abort Phase**
+
+Ở phase đầu tiên, Coordinator gửi yêu cầu `PREPARE` đến các Participant Node. Mỗi node kiểm tra điều kiện cục bộ và trả về `YES` hoặc `NO`.
+
+Ở phase thứ hai:
+
+* Nếu tất cả node trả về `YES`, Coordinator quyết định `GLOBAL COMMIT`.
+* Nếu có node trả về `NO`, timeout hoặc bị lỗi, Coordinator quyết định `GLOBAL ABORT`.
+
+Cách xử lý này giúp hệ thống tránh trường hợp **partial commit**, tức là một số node đã Commit nhưng node khác lại thất bại.
+
+---
+
+## 3. Dataset Specification
+
+### Source
+
+Dataset được tạo mô phỏng theo dạng **Financial_Transactions**.
+
+### Size
+
+Dataset gồm:
+
+* 1.000 tài khoản
+* 10.000 bản ghi giao dịch tài chính
+
+### Schema
+
+Các thuộc tính chính của dataset:
+
+| Thuộc tính       | Ý nghĩa                       |
+| ---------------- | ----------------------------- |
+| transaction_id   | Mã định danh Transaction      |
+| from_account     | Tài khoản gửi                 |
+| to_account       | Tài khoản nhận                |
+| amount           | Số tiền giao dịch             |
+| transaction_type | Loại giao dịch                |
+| timestamp        | Thời gian phát sinh giao dịch |
+| from_node        | Node chứa tài khoản gửi       |
+| to_node          | Node chứa tài khoản nhận      |
+| status           | Trạng thái Transaction        |
+
+### Fragmentation Strategy
+
+Dữ liệu tài khoản được chia theo chiến lược **Horizontal Fragmentation** trên ba node:
+
+* Node A
+* Node B
+* Node C
+
+Quy tắc phân mảnh:
+
+```text
+account_id % 3 = 0 → Node A
+account_id % 3 = 1 → Node B
+account_id % 3 = 2 → Node C
+```
+
+Cách phân chia này giúp mô phỏng trường hợp dữ liệu nằm ở nhiều node khác nhau. Khi một Transaction chuyển tiền giữa hai tài khoản thuộc hai node khác nhau, hệ thống phải xử lý như một Distributed Transaction.
+
+---
+
+## 4. System Architecture
+
+Hệ thống được mô phỏng theo kiến trúc gồm một Coordinator và ba Participant Node.
+
+```text
+Client / Benchmark Script
+          |
+          v
+    Coordinator Server
+          |
+   ---------------------
+   |         |         |
+ Node A    Node B    Node C
+ SQLite    SQLite    SQLite
+```
+
+### Nodes
+
+| Thành phần                | Vai trò                               |
+| ------------------------- | ------------------------------------- |
+| Client / Benchmark Script | Gửi Transaction và chạy Benchmark     |
+| Coordinator               | Điều phối giao thức Two-Phase Commit  |
+| Node A                    | Participant Node lưu một phần dữ liệu |
+| Node B                    | Participant Node lưu một phần dữ liệu |
+| Node C                    | Participant Node lưu một phần dữ liệu |
+
+### Communication Layer
+
+Các thành phần giao tiếp với nhau thông qua:
+
+```text
+HTTP/REST API
+```
+
+Coordinator gửi request đến các Participant Node qua các endpoint như:
+
+```text
+/prepare
+/commit
+/abort
+/health
+```
+
+### Storage
+
+Mỗi Participant Node sử dụng một SQLite database riêng:
+
+```text
+node_a.db
+node_b.db
+node_c.db
+```
+
+Việc mỗi node có database riêng giúp mô phỏng môi trường cơ sở dữ liệu phân tán, trong đó mỗi site lưu trữ và xử lý dữ liệu cục bộ của mình.
+
+---
+
+## 5. Tech Stack & Implementation Plan
+
+### Programming Language
+
+```text
+Python
+```
+
+### Libraries / Frameworks
+
+| Công nghệ          | Vai trò                                               |
+| ------------------ | ----------------------------------------------------- |
+| Flask              | Xây dựng REST API cho Coordinator và Participant Node |
+| Requests           | Gửi HTTP request giữa Coordinator và các node         |
+| SQLite             | Lưu trữ dữ liệu cục bộ cho từng node                  |
+| Pandas             | Đọc dữ liệu, xử lý kết quả Benchmark                  |
+| NumPy              | Tính toán thống kê                                    |
+| Matplotlib         | Vẽ biểu đồ phân tích                                  |
+| ThreadPoolExecutor | Gửi request song song đến các Participant Node        |
+
+### Deployment
+
+Hệ thống được triển khai dưới dạng các process chạy trên localhost:
+
+```text
+Coordinator: localhost:8000
+Node A: localhost:5001
+Node B: localhost:5002
+Node C: localhost:5003
+```
+
+### Implementation Plan
+
+Các bước triển khai chính:
+
+1. Tạo dataset Financial_Transactions gồm 10.000 bản ghi.
+2. Tạo 1.000 tài khoản và chia dữ liệu theo Horizontal Fragmentation.
+3. Khởi tạo SQLite database riêng cho Node A, Node B, Node C.
+4. Xây dựng REST API cho các Participant Node.
+5. Xây dựng Coordinator để điều phối Two-Phase Commit.
+6. Mô phỏng ba mức Latency: 1ms, 50ms, 250ms.
+7. Chạy Benchmark nhiều lần để thu thập số liệu.
+8. Tính các chỉ số Mean, Median, P99 và Cost of Coordination.
+9. Vẽ biểu đồ phân tích.
+10. Mô phỏng Failure Scenario bằng cách kill Node B.
+11. Viết Analysis Report liên hệ với lý thuyết Özsu và Valduriez.
+12. Quay video Proof 3–5 phút.
+
+---
+
+## 6. Success Metrics & Analysis
+
+### Quantitative Metrics
+
+Dự án đo các chỉ số sau:
+
+| Metric                    | Ý nghĩa                              |
+| ------------------------- | ------------------------------------ |
+| total_time_ms             | Tổng thời gian xử lý một Transaction |
+| prepare_phase_ms          | Thời gian phase Prepare              |
+| decision_phase_ms         | Thời gian phase Commit hoặc Abort    |
+| doing_work_ms             | Thời gian xử lý thực tế tại node     |
+| network_wait_ms           | Thời gian chờ mạng                   |
+| coordination_cost_percent | Tỷ lệ Cost of Coordination           |
+| mean_time_ms              | Thời gian trung bình                 |
+| median_time_ms            | Thời gian trung vị                   |
+| p99_time_ms               | P99 tail latency                     |
+| abort_rate                | Tỷ lệ Transaction bị Abort           |
+
+### Cost of Coordination
+
+Công thức chính:
+
+```text
+Total Transaction Time = Doing Work Time + Network Waiting Time
+```
+
+```text
+Network Waiting Time = Total Transaction Time - Doing Work Time
+```
+
+```text
+Cost of Coordination (%) = Network Waiting Time / Total Transaction Time × 100
+```
+
+Chỉ số này cho biết phần trăm thời gian giao dịch bị tiêu tốn cho việc chờ mạng và phối hợp giữa các node.
+
+### Latency Levels
+
+Dự án mô phỏng ba mức Latency:
+
+| Latency | Ý nghĩa                 |
+| ------: | ----------------------- |
+|     1ms | Local                   |
+|    50ms | Regional                |
+|   250ms | Global / Trans-Atlantic |
+
+Với mỗi mức Latency, hệ thống sẽ chạy nhiều Transaction để đo đạc và so sánh kết quả.
+
+### Benchmark Methodology
+
+Phương pháp Benchmark:
+
+```text
+Với mỗi mức Latency: 1ms, 50ms, 250ms
+- Warm-up 20 Transaction
+- Chạy 100 Transaction
+- Lặp lại 5 lần
+```
+
+Tổng số Transaction dùng để đo:
+
+```text
+3 Latency × 5 Runs × 100 Transactions = 1500 Transactions
+```
+
+Cách làm này giúp kết quả có độ tin cậy cao hơn so với việc chỉ chạy một vài Transaction đơn lẻ.
+
+### Theoretical Analysis
+
+Kết quả được phân tích dựa trên mô hình chi phí của Özsu và Valduriez:
+
+```text
+Cost = IO + CPU + Comm
+```
+
+Trong đó:
+
+| Thành phần | Ý nghĩa                 |
+| ---------- | ----------------------- |
+| IO         | Chi phí đọc/ghi dữ liệu |
+| CPU        | Chi phí xử lý           |
+| Comm       | Communication Cost      |
+
+Trong thí nghiệm này, IO và CPU được giữ gần như cố định bằng cách sử dụng cùng dataset, cùng SQLite engine, cùng số lượng node và cùng logic Transaction. Biến được thay đổi có kiểm soát là Network Latency.
+
+Khi Latency tăng, thành phần `Comm` tăng mạnh. Vì vậy, tổng thời gian Transaction tăng chủ yếu do Communication Cost.
+
+### Failure Scenario
+
+Failure Scenario chính:
+
+```text
+Kill Node B trong quá trình xử lý Transaction
+```
+
+Kết quả mong muốn:
+
+```text
+Coordinator không nhận đủ vote YES
+Coordinator quyết định GLOBAL ABORT
+Node A và Node C thực hiện Rollback
+Transaction kết thúc với trạng thái ABORT
+Không xảy ra partial commit
+```
+
+Failure Scenario này chứng minh hệ thống đảm bảo Atomicity khi một Participant Node bị lỗi.
+
+---
+
+## 7. Project Milestones
+
+### Milestone 1: Project Setup và Dataset
+
+* Tạo cấu trúc project.
+* Tạo dataset Financial_Transactions.
+* Viết Project Proposal.
+* Viết README bản đầu.
+
+### Milestone 2: Participant Node
+
+* Xây dựng Node A, Node B, Node C.
+* Tạo SQLite database cho từng node.
+* Cài đặt API `/health`, `/prepare`, `/commit`, `/abort`.
+
+### Milestone 3: Coordinator và Two-Phase Commit
+
+* Xây dựng Coordinator.
+* Cài đặt Prepare / Voting Phase.
+* Cài đặt Commit / Abort Phase.
+* Ghi log Transaction.
+
+### Milestone 4: Latency Simulation và Benchmark
+
+* Mô phỏng Latency 1ms, 50ms, 250ms.
+* Chạy Benchmark nhiều lần.
+* Xuất file `results_raw.csv` và `results_summary.csv`.
+
+### Milestone 5: Analysis và Visualization
+
+* Tính Mean, Median, P99.
+* Tính Cost of Coordination.
+* Vẽ biểu đồ phân tích.
+* Viết Analysis Report.
+
+### Milestone 6: Failure Handling và Proof Video
+
+* Mô phỏng kill Node B.
+* Chứng minh hệ thống Global Abort đúng.
+* Quay video Proof 3–5 phút.
+* Hoàn thiện GitHub repository.
+
+---
+
+## 8. Expected Outcome
+
+Kết quả mong đợi của dự án:
+
+1. Hệ thống mô phỏng Distributed Database chạy được với 3 Participant Node.
+2. Coordinator điều phối thành công giao thức Two-Phase Commit.
+3. Hệ thống đo được thời gian Transaction ở ba mức Latency.
+4. Có Benchmark result với Mean, Median, P99.
+5. Có biểu đồ thể hiện rõ tác động của Latency.
+6. Có phân tích Cost of Coordination.
+7. Có liên hệ lý thuyết với mô hình `Cost = IO + CPU + Comm`.
+8. Có demo Failure Scenario khi kill Node B.
+9. Có GitHub/GitLab repository với README rõ ràng.
+10. Có Proof Video 3–5 phút phục vụ trình bày cuối kỳ.
+
+---
+
+## 9. Conclusion
+
+Đề tài này giúp đánh giá rõ tác động của Network Latency đến Distributed Transaction trong hệ cơ sở dữ liệu phân tán. Thông qua việc triển khai Two-Phase Commit, mô phỏng Latency và chạy Benchmark, dự án chứng minh rằng Communication Cost có thể trở thành yếu tố chi phối tổng thời gian giao dịch khi các node nằm xa nhau.
+
+Kết quả của đồ án được liên hệ trực tiếp với lý thuyết Özsu và Valduriez thông qua mô hình:
+
+```text
+Cost = IO + CPU + Comm
+```
+
+Trong đó `Comm` tăng mạnh khi Latency tăng. Đây là cơ sở để giải thích vì sao Distributed Transaction trong môi trường mạng diện rộng thường chậm hơn nhiều so với môi trường local.
