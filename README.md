@@ -10,13 +10,13 @@
 
 ---
 
-## 2. Giới thiệu
+## 2. Giới thiệu đề tài
 
-Đồ án này mô phỏng một hệ cơ sở dữ liệu phân tán gồm một **Coordinator** và ba **Participant Node**. Hệ thống sử dụng giao thức **Two-Phase Commit – 2PC** để xử lý **Distributed Transaction** và đảm bảo các node cùng `Commit` hoặc cùng `Abort`.
+Đồ án này mô phỏng một hệ cơ sở dữ liệu phân tán gồm một **Coordinator** và ba **Participant Node**. Hệ thống sử dụng giao thức **Two-Phase Commit – 2PC** để xử lý **Distributed Transaction**, đảm bảo các node cùng `Commit` hoặc cùng `Abort`, tránh tình trạng `partial commit`.
 
-Mục tiêu chính của đồ án là đánh giá tác động của **Network Latency** đến thời gian xử lý Transaction. Khi các node nằm xa nhau hơn về mặt mạng, thời gian chờ truyền thông tăng lên, từ đó làm tăng **Communication Cost** và **Cost of Coordination**.
+Mục tiêu chính của đồ án là nghiên cứu tác động của **Network Latency** đến thời gian xử lý Transaction trong hệ cơ sở dữ liệu phân tán. Khi các node nằm xa nhau hơn về mặt mạng, thời gian truyền thông giữa Coordinator và Participant Node tăng lên, làm tăng **Communication Cost** và **Cost of Coordination**.
 
-Đồ án mô phỏng ba mức Latency:
+Hệ thống mô phỏng ba mức Latency:
 
 | Latency | Ý nghĩa                 |
 | ------: | ----------------------- |
@@ -24,13 +24,21 @@ Mục tiêu chính của đồ án là đánh giá tác động của **Network 
 |    50ms | Regional                |
 |   250ms | Global / Trans-Atlantic |
 
-Kết quả Benchmark sẽ được phân tích dựa trên mô hình chi phí của Özsu và Valduriez:
+Kết quả Benchmark được phân tích dựa trên mô hình chi phí trong cơ sở dữ liệu phân tán:
 
 ```text
 Cost = IO + CPU + Comm
 ```
 
-Trong đó `Comm` là Communication Cost, thành phần bị ảnh hưởng trực tiếp bởi Network Latency.
+Trong đó:
+
+| Thành phần | Ý nghĩa                                    |
+| ---------- | ------------------------------------------ |
+| IO         | Chi phí đọc/ghi dữ liệu tại local database |
+| CPU        | Chi phí xử lý logic Transaction            |
+| Comm       | Chi phí truyền thông giữa các node         |
+
+Trong đồ án này, `Comm` là thành phần bị ảnh hưởng trực tiếp bởi Network Latency.
 
 ---
 
@@ -41,10 +49,29 @@ Dự án tập trung vào các mục tiêu sau:
 1. Xây dựng hệ thống mô phỏng Distributed Database với 3 Participant Node.
 2. Cài đặt giao thức Two-Phase Commit.
 3. Mô phỏng Network Latency ở các mức 1ms, 50ms và 250ms.
-4. Đo các metric như total transaction time, doing work time, network waiting time và Cost of Coordination.
-5. Chạy Benchmark nhiều lần để tính Mean, Median và P99.
+4. Đo các metric như:
+   - Total Transaction Time
+   - Prepare Phase Time
+   - Decision Phase Time
+   - Doing Work Time
+   - Network Waiting Time
+   - Cost of Coordination
+
+5. Chạy Benchmark nhiều lần để tính:
+   - Mean
+   - Median
+   - P99
+   - Min
+   - Max
+   - Standard Deviation
+   - Abort Rate
+
 6. Mô phỏng Failure Scenario bằng cách kill Node B.
-7. Phân tích kết quả dựa trên lý thuyết `Cost = IO + CPU + Comm`.
+7. Phân tích kết quả dựa trên lý thuyết:
+
+```text
+Cost = IO + CPU + Comm
+```
 
 ---
 
@@ -79,9 +106,56 @@ Coordinator giao tiếp với các Participant Node thông qua **HTTP/REST API**
 
 ---
 
-## 5. Dataset
+## 5. Two-Phase Commit trong đồ án
 
-Dự án sử dụng dataset mô phỏng dạng **Financial_Transactions**.
+Hệ thống sử dụng giao thức **Two-Phase Commit – 2PC** để đảm bảo tính **Atomicity** cho Distributed Transaction.
+
+### Phase 1: PREPARE / VOTING
+
+Coordinator gửi yêu cầu `/prepare` đến tất cả Participant Node.
+
+Mỗi node kiểm tra:
+
+- Node có liên quan đến Transaction không.
+- Tài khoản gửi hoặc nhận có nằm trên node không.
+- Tài khoản có tồn tại không.
+- Số dư có đủ để thực hiện giao dịch không.
+- Node có đang hoạt động bình thường không.
+
+Sau đó node trả về:
+
+```text
+YES hoặc NO
+```
+
+### Phase 2: COMMIT / ABORT
+
+Nếu tất cả node vote `YES`, Coordinator quyết định:
+
+```text
+GLOBAL COMMIT
+```
+
+Nếu có ít nhất một node vote `NO`, timeout hoặc bị lỗi, Coordinator quyết định:
+
+```text
+GLOBAL ABORT
+```
+
+Quy tắc quyết định:
+
+```text
+Nếu tất cả Participant Node vote YES → COMMIT
+Nếu có ít nhất một node vote NO hoặc node lỗi → ABORT
+```
+
+Ý nghĩa của Two-Phase Commit là đảm bảo không xảy ra trường hợp một số node đã Commit nhưng node khác lại Abort.
+
+---
+
+## 6. Dataset
+
+Dự án sử dụng dataset mô phỏng dạng **Financial Transactions**.
 
 Dataset gồm:
 
@@ -102,7 +176,9 @@ Dataset gồm:
 | to_node          | Node chứa tài khoản nhận |
 | status           | Trạng thái Transaction   |
 
-### Fragmentation Strategy
+---
+
+## 7. Fragmentation Strategy
 
 Dữ liệu tài khoản được chia theo **Horizontal Fragmentation** trên ba node:
 
@@ -120,11 +196,25 @@ ACC0002 → Node C
 ACC0003 → Node A
 ```
 
-Cách chia này giúp mô phỏng trường hợp một Transaction có thể liên quan đến nhiều node khác nhau.
+Cách chia này giúp mô phỏng tình huống một Distributed Transaction có thể liên quan đến nhiều node khác nhau.
+
+Ví dụ Transaction:
+
+```text
+ACC0001 chuyển tiền cho ACC0002
+```
+
+Theo Fragmentation Strategy:
+
+```text
+ACC0001 → Node B → role DEBIT
+ACC0002 → Node C → role CREDIT
+Node A không liên quan → role NONE
+```
 
 ---
 
-## 6. Tech Stack
+## 8. Tech Stack
 
 | Công nghệ          | Vai trò                                               |
 | ------------------ | ----------------------------------------------------- |
@@ -139,7 +229,7 @@ Cách chia này giúp mô phỏng trường hợp một Transaction có thể li
 
 ---
 
-## 7. Cấu trúc thư mục
+## 9. Cấu trúc thư mục
 
 ```text
 trans-atlantic-db/
@@ -180,12 +270,13 @@ trans-atlantic-db/
 │   └── project_overview.md
 │
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── .gitignore
 ```
 
 ---
 
-## 8. Cài đặt môi trường
+## 10. Cài đặt môi trường
 
 ### Bước 1: Clone repository
 
@@ -235,7 +326,7 @@ matplotlib
 
 ---
 
-## 9. Tạo dataset
+## 11. Tạo dataset
 
 Chạy lệnh:
 
@@ -264,7 +355,7 @@ Rows: 10000
 
 ---
 
-## 10. Khởi tạo SQLite database cho các node
+## 12. Khởi tạo SQLite database cho các node
 
 Chạy lệnh:
 
@@ -299,7 +390,7 @@ Mỗi database có các bảng chính:
 
 ---
 
-## 11. Chạy các Participant Node
+## 13. Chạy các Participant Node
 
 Mở 3 terminal riêng.
 
@@ -332,11 +423,11 @@ Running on http://127.0.0.1:5001
 
 ---
 
-## 12. Kiểm tra trạng thái các node
+## 14. Kiểm tra trạng thái các node
 
 Trên Windows PowerShell, nên dùng `Invoke-RestMethod` hoặc `curl.exe`.
 
-### Cách 1: Dùng Invoke-RestMethod
+### Dùng Invoke-RestMethod
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:5001/health"
@@ -344,7 +435,7 @@ Invoke-RestMethod -Uri "http://localhost:5002/health"
 Invoke-RestMethod -Uri "http://localhost:5003/health"
 ```
 
-### Cách 2: Dùng curl.exe
+### Dùng curl.exe
 
 ```powershell
 curl.exe http://localhost:5001/health
@@ -360,11 +451,11 @@ Node B → UP
 Node C → UP
 ```
 
-Lưu ý: Trong PowerShell, lệnh `curl` có thể bị hiểu thành `Invoke-WebRequest` và hiện cảnh báo bảo mật. Vì vậy nên dùng `curl.exe` hoặc `Invoke-RestMethod`.
+Lưu ý: Trong PowerShell, lệnh `curl` có thể bị hiểu thành `Invoke-WebRequest`. Vì vậy nên dùng `curl.exe` hoặc `Invoke-RestMethod`.
 
 ---
 
-## 13. Kiểm tra tài khoản trong từng node
+## 15. Kiểm tra tài khoản trong từng node
 
 Ví dụ kiểm tra các tài khoản:
 
@@ -384,7 +475,7 @@ ACC0002 → Node C
 
 ---
 
-## 14. Test thủ công Two-Phase Commit trên các Participant Node
+## 16. Test thủ công Two-Phase Commit trên Participant Node
 
 Phần này dùng để kiểm tra riêng các Participant Node trước khi chạy Coordinator.
 
@@ -455,7 +546,7 @@ Node C → Committed successfully, role CREDIT
 
 ---
 
-## 15. Xem log của Participant Node
+## 17. Xem log của Participant Node
 
 Xem log Node A:
 
@@ -485,7 +576,7 @@ ABORT
 
 ---
 
-## 16. Chạy Coordinator
+## 18. Chạy Coordinator
 
 Sau khi chạy đủ Node A, Node B và Node C, mở terminal mới và chạy:
 
@@ -515,7 +606,7 @@ Invoke-RestMethod -Uri "http://localhost:8000/nodes/health"
 
 ---
 
-## 17. Gửi Transaction qua Coordinator
+## 19. Gửi Transaction qua Coordinator
 
 Khi dùng Coordinator, người dùng chỉ cần gửi một Transaction. Coordinator sẽ tự động điều phối toàn bộ Two-Phase Commit.
 
@@ -563,9 +654,9 @@ Node C → ack True, Committed successfully
 
 ---
 
-## 18. Metric được Coordinator đo
+## 20. Metric được Coordinator đo
 
-Mỗi Transaction qua Coordinator sẽ ghi các metric:
+Mỗi Transaction qua Coordinator sẽ ghi các metric sau:
 
 | Metric                    | Ý nghĩa                       |
 | ------------------------- | ----------------------------- |
@@ -595,7 +686,7 @@ Cost of Coordination (%) = Network Waiting Time / Total Transaction Time × 100
 
 ---
 
-## 19. Test Latency 1ms, 50ms và 250ms
+## 21. Test Latency 1ms, 50ms và 250ms
 
 ### Latency 1ms
 
@@ -655,7 +746,7 @@ Latency 250ms → total_time_ms tăng rất mạnh
 
 ---
 
-## 20. Failure Scenario: Kill Node B
+## 22. Failure Scenario: Kill Node B
 
 Mục tiêu của phần này là chứng minh hệ thống không bị **partial commit** khi một Participant Node bị lỗi.
 
@@ -703,10 +794,10 @@ failed_nodes có Node B
 Ý nghĩa:
 
 ```text
-Coordinator không nhận đủ vote YES
-Coordinator quyết định GLOBAL ABORT
-Các node còn lại thực hiện Rollback/Abort
-Không xảy ra partial commit
+Coordinator không nhận đủ vote YES.
+Coordinator quyết định GLOBAL ABORT.
+Các node còn lại thực hiện Rollback/Abort.
+Không xảy ra partial commit.
 ```
 
 ### Bước 3: Khôi phục Node B
@@ -723,7 +814,7 @@ Invoke-RestMethod -Uri "http://localhost:8000/nodes/health"
 
 ---
 
-## 21. Xem log của Coordinator
+## 23. Xem log của Coordinator
 
 Coordinator ghi log tại:
 
@@ -746,17 +837,27 @@ $logs.logs | Format-Table transaction_id, latency_ms, decision, status, total_ti
 
 ---
 
-## 22. Chạy Benchmark
+## 24. Chạy Benchmark
 
 Phần Benchmark dùng để chạy nhiều Transaction ở từng mức Latency và xuất kết quả phân tích.
+
+Trước khi Benchmark, nên reset database để dữ liệu sạch:
+
+```powershell
+python nodes/init_nodes.py
+```
+
+Sau đó chạy lại Node A, Node B, Node C và Coordinator.
 
 Chạy Benchmark:
 
 ```powershell
-python benchmark/run_benchmark.py --latency 1 --runs 5 --transactions 100
+python benchmark/run_benchmark.py --latency 1 --runs 5 --transactions 100 --reset
 python benchmark/run_benchmark.py --latency 50 --runs 5 --transactions 100
 python benchmark/run_benchmark.py --latency 250 --runs 5 --transactions 100
 ```
+
+Lưu ý: chỉ dùng `--reset` ở lệnh đầu tiên để xóa kết quả cũ. Nếu dùng `--reset` ở cả ba lệnh thì kết quả benchmark trước đó sẽ bị mất.
 
 Kết quả sẽ được lưu tại:
 
@@ -775,13 +876,13 @@ Runs: 5
 Transactions per run: 100
 ```
 
-Tổng số Transaction đo:
+Tổng số Transaction đo chính thức:
 
 ```text
 3 Latency × 5 Runs × 100 Transactions = 1500 Transactions
 ```
 
-Các thống kê cần tính:
+Các thống kê được tính:
 
 | Thống kê           | Ý nghĩa                        |
 | ------------------ | ------------------------------ |
@@ -795,7 +896,21 @@ Các thống kê cần tính:
 
 ---
 
-## 23. Phân tích kết quả và vẽ biểu đồ
+## 25. Kết quả Benchmark
+
+Kết quả benchmark tổng hợp:
+
+| Latency | Transactions | Success | Abort Rate | Mean Total Time | Median Total Time | P99 Total Time | Mean Doing Work | Mean Network Waiting | Cost of Coordination |
+| ------: | -----------: | ------: | ---------: | --------------: | ----------------: | -------------: | --------------: | -------------------: | -------------------: |
+|     1ms |          500 |     500 |         0% |        57.97 ms |          56.98 ms |       99.21 ms |        23.25 ms |             34.72 ms |               58.70% |
+|    50ms |          500 |     500 |         0% |       253.30 ms |         251.64 ms |      288.27 ms |        24.38 ms |            228.92 ms |               90.37% |
+|   250ms |          500 |     500 |         0% |      1057.85 ms |        1053.72 ms |     1115.83 ms |        28.33 ms |           1029.52 ms |               97.33% |
+
+Kết quả cho thấy hệ thống xử lý thành công toàn bộ 1500 Transaction trong điều kiện các node hoạt động bình thường. Abort Rate ở cả ba mức latency đều bằng 0%.
+
+---
+
+## 26. Phân tích kết quả và vẽ biểu đồ
 
 Chạy lệnh:
 
@@ -809,28 +924,68 @@ Kết quả sẽ tạo các biểu đồ trong thư mục:
 analysis/charts/
 ```
 
-Các biểu đồ cần có:
+Các biểu đồ đã tạo:
 
-| Biểu đồ                   | Ý nghĩa                                     |
-| ------------------------- | ------------------------------------------- |
-| total_time_by_latency.png | So sánh total transaction time theo Latency |
-| coordination_cost.png     | So sánh Cost of Coordination                |
-| work_vs_network.png       | So sánh Doing Work và Network Waiting       |
-| mean_median_p99.png       | So sánh Mean, Median và P99                 |
+| Biểu đồ                   | Ý nghĩa                                          |
+| ------------------------- | ------------------------------------------------ |
+| total_time_by_latency.png | So sánh Mean Total Transaction Time theo Latency |
+| coordination_cost.png     | So sánh Cost of Coordination                     |
+| work_vs_network.png       | So sánh Doing Work và Network Waiting            |
+| mean_median_p99.png       | So sánh Mean, Median và P99                      |
 
-Biểu đồ quan trọng nhất là:
+### Total Transaction Time by Network Latency
+
+![Total Transaction Time by Network Latency](analysis/charts/total_time_by_latency.png)
+
+Biểu đồ cho thấy Mean Total Transaction Time tăng mạnh khi Network Latency tăng. Ở mức latency 1ms, thời gian trung bình là 57.97 ms. Khi latency tăng lên 50ms, thời gian tăng lên 253.30 ms. Ở mức latency 250ms, thời gian trung bình đạt 1057.85 ms.
+
+Điều này chứng minh Network Latency có tác động trực tiếp đến thời gian xử lý Distributed Transaction sử dụng Two-Phase Commit.
+
+### Cost of Coordination by Network Latency
+
+![Cost of Coordination by Network Latency](analysis/charts/coordination_cost.png)
+
+Cost of Coordination tăng từ 58.70% ở mức latency 1ms lên 90.37% ở mức 50ms và 97.33% ở mức 250ms.
+
+Điều này cho thấy khi các node nằm xa nhau về mặt mạng, phần lớn thời gian xử lý Transaction không còn nằm ở thao tác xử lý dữ liệu, mà nằm ở chi phí truyền thông và điều phối giữa Coordinator và Participant Node.
+
+### Doing Work vs Network Waiting Time
+
+![Doing Work vs Network Waiting Time](analysis/charts/work_vs_network.png)
+
+Đây là biểu đồ quan trọng nhất trong phần phân tích.
+
+Doing Work Time gần như ổn định:
 
 ```text
-Doing Work vs Network Waiting
+1ms   → 23.25 ms
+50ms  → 24.38 ms
+250ms → 28.33 ms
 ```
 
-Vì biểu đồ này cho thấy bao nhiêu phần thời gian là xử lý thật và bao nhiêu phần thời gian là chờ mạng.
+Trong khi đó, Network Waiting Time tăng rất mạnh:
+
+```text
+1ms   → 34.72 ms
+50ms  → 228.92 ms
+250ms → 1029.52 ms
+```
+
+Điều này chứng minh sự gia tăng tổng thời gian xử lý Transaction chủ yếu đến từ thời gian chờ mạng, không phải do thời gian xử lý thật tại node.
+
+### Mean, Median and P99 Transaction Time
+
+![Mean, Median and P99 Transaction Time](analysis/charts/mean_median_p99.png)
+
+Mean, Median và P99 đều tăng khi Network Latency tăng. Điều này cho thấy ảnh hưởng của Network Latency là nhất quán trên toàn bộ tập Transaction, không chỉ xuất hiện ở một vài trường hợp bất thường.
+
+P99 ở mức latency 250ms đạt 1115.83 ms, cho thấy các Transaction chậm nhất cũng bị ảnh hưởng rõ rệt bởi độ trễ mạng.
 
 ---
 
-## 24. Liên hệ lý thuyết Özsu và Valduriez
+## 27. Liên hệ lý thuyết Özsu và Valduriez
 
-Theo Özsu và Valduriez, chi phí của một thao tác trong cơ sở dữ liệu phân tán có thể biểu diễn như sau:
+Theo mô hình chi phí trong cơ sở dữ liệu phân tán:
 
 ```text
 Cost = IO + CPU + Comm
@@ -860,28 +1015,68 @@ Biến được thay đổi có kiểm soát là:
 Network Latency
 ```
 
-Do đó, khi Latency tăng, `Comm` tăng mạnh. Kết quả Benchmark dùng để chứng minh rằng Communication Cost có thể trở thành yếu tố chi phối tổng thời gian xử lý Distributed Transaction.
+Do đó, khi Latency tăng, `Comm` tăng mạnh. Kết quả Benchmark chứng minh Communication Cost có thể trở thành yếu tố chi phối tổng thời gian xử lý Distributed Transaction.
+
+Kết quả benchmark cho thấy:
+
+```text
+Latency 1ms   → Cost of Coordination = 58.70%
+Latency 50ms  → Cost of Coordination = 90.37%
+Latency 250ms → Cost of Coordination = 97.33%
+```
+
+Điều này phù hợp với lý thuyết `Cost = IO + CPU + Comm`, vì IO và CPU gần như không đổi, còn Comm tăng mạnh theo Network Latency.
 
 ---
 
-## 25. Deliverables
+## 28. Kết luận thực nghiệm
+
+Kết quả thực nghiệm cho thấy Network Latency có ảnh hưởng rất lớn đến Distributed Transaction sử dụng Two-Phase Commit.
+
+Khi latency tăng từ 1ms lên 50ms và 250ms:
+
+```text
+Mean Total Transaction Time:
+57.97 ms → 253.30 ms → 1057.85 ms
+```
+
+Trong khi đó, Doing Work Time gần như ổn định:
+
+```text
+23.25 ms → 24.38 ms → 28.33 ms
+```
+
+Network Waiting Time tăng mạnh:
+
+```text
+34.72 ms → 228.92 ms → 1029.52 ms
+```
+
+Cost of Coordination tăng từ 58.70% lên 90.37% và 97.33%.
+
+Điều này chứng minh rằng trong Distributed Transaction, đặc biệt với giao thức Two-Phase Commit, Communication Cost có thể trở thành thành phần chi phối tổng thời gian xử lý khi các node nằm xa nhau về mặt mạng.
+
+---
+
+## 29. Deliverables
 
 Các sản phẩm cần nộp cho giảng viên:
 
-| Deliverable            | File / Link                                                  |
-| ---------------------- | ------------------------------------------------------------ |
-| Project Proposal       | `docs/proposal.md`                                           |
-| 2-page Design Document | `docs/design_document.md`                                    |
-| Code Repository        | GitHub/GitLab repository                                     |
-| Analysis Report        | `docs/analysis_report.md`                                    |
-| Proof Video            | Link video 3–5 phút                                          |
-| Dataset                | `data/financial_transactions.csv`                            |
-| Benchmark Results      | `benchmark/results_raw.csv`, `benchmark/results_summary.csv` |
-| Charts                 | `analysis/charts/`                                           |
+| Deliverable           | File / Link                     |
+| --------------------- | ------------------------------- |
+| Project Proposal      | docs/proposal.md                |
+| Design Document       | docs/design_document.md         |
+| Code Repository       | GitHub/GitLab repository        |
+| Analysis Report       | docs/analysis_report.md         |
+| Proof Video           | Link video 3–5 phút             |
+| Dataset               | data/financial_transactions.csv |
+| Benchmark Raw Results | benchmark/results_raw.csv       |
+| Benchmark Summary     | benchmark/results_summary.csv   |
+| Charts                | analysis/charts/                |
 
 ---
 
-## 26. Proof Video 3–5 phút
+## 30. Proof Video 3–5 phút
 
 Kịch bản quay video đề xuất:
 
@@ -896,47 +1091,54 @@ Chạy Node A, Node B, Node C và Coordinator.
 Gửi một Transaction bình thường và cho thấy GLOBAL COMMIT.
 
 2:00 – 2:45
-Chạy hoặc mở kết quả Benchmark với Latency 1ms, 50ms, 250ms.
+Mở kết quả Benchmark với Latency 1ms, 50ms, 250ms.
 
-2:45 – 3:45
+2:45 – 3:30
+Mở các biểu đồ phân tích:
+- Total Transaction Time
+- Cost of Coordination
+- Doing Work vs Network Waiting
+- Mean, Median and P99
+
+3:30 – 4:20
 Kill Node B và gửi Transaction mới.
 Cho thấy Coordinator quyết định GLOBAL ABORT.
 
-3:45 – 5:00
-Mở biểu đồ và kết luận theo Cost = IO + CPU + Comm.
+4:20 – 5:00
+Kết luận theo mô hình Cost = IO + CPU + Comm.
 ```
 
 ---
 
-## 27. Current Progress
+## 31. Current Progress
 
 - [x] Tạo cấu trúc project
 - [x] Viết dataset generator
-- [x] Tạo dataset Financial_Transactions
-- [x] Viết Project Proposal nháp
-- [x] Viết README
+- [x] Tạo dataset Financial Transactions
 - [x] Khởi tạo SQLite database cho các node
 - [x] Xây dựng Participant Node API
 - [x] Test `/health`
 - [x] Test `/prepare`
 - [x] Test `/commit`
-- [x] Test log của node
+- [x] Test `/abort`
+- [x] Test log của Participant Node
 - [x] Xây dựng Coordinator
 - [x] Implement Two-Phase Commit tự động qua Coordinator
 - [x] Test Transaction qua Coordinator
+- [x] Thêm Latency Simulation
 - [x] Demo Failure Scenario với Node B
-- [ ] Thêm Latency Simulation vào Benchmark
-- [ ] Chạy Benchmark 1ms / 50ms / 250ms
-- [ ] Tính Mean, Median, P99
-- [ ] Tính Cost of Coordination
-- [ ] Vẽ biểu đồ
-- [ ] Demo Failure Scenario với Node B
-- [ ] Viết Analysis Report
+- [x] Viết Benchmark Script
+- [x] Chạy Benchmark 1ms / 50ms / 250ms
+- [x] Tính Mean, Median, P99
+- [x] Tính Cost of Coordination
+- [x] Vẽ biểu đồ
+- [x] Viết Analysis Report
 - [ ] Quay Proof Video
+- [ ] Hoàn thiện repository để nộp
 
 ---
 
-## 28. Trạng thái test hiện tại
+## 32. Trạng thái test hiện tại
 
 Hệ thống Participant Node đã test thành công với Transaction thủ công:
 
@@ -964,16 +1166,36 @@ Node B → Committed successfully
 Node C → Committed successfully
 ```
 
-Điều này chứng minh ba Participant Node đã xử lý đúng vai trò trong Two-Phase Commit.
+Hệ thống Coordinator cũng đã test thành công với Transaction tự động qua endpoint:
+
+```text
+POST /transaction
+```
+
+Coordinator tự động thực hiện:
+
+```text
+PREPARE phase
+GLOBAL COMMIT hoặc GLOBAL ABORT
+COMMIT/ABORT phase
+Ghi log
+Trả kết quả về Client
+```
+
+Benchmark đã hoàn thành với 1500 Transaction chính thức ở ba mức Latency 1ms, 50ms và 250ms.
 
 ---
 
-## 29. Kết luận
+## 33. Kết luận
 
-Dự án mô phỏng một hệ cơ sở dữ liệu phân tán sử dụng Two-Phase Commit để xử lý Distributed Transaction. Hệ thống được thiết kế để đo tác động của Network Latency đến tổng thời gian giao dịch và Cost of Coordination.
+Dự án đã mô phỏng thành công một hệ cơ sở dữ liệu phân tán sử dụng Two-Phase Commit để xử lý Distributed Transaction. Hệ thống gồm một Coordinator và ba Participant Node, dữ liệu được phân mảnh ngang theo tài khoản và lưu trữ cục bộ bằng SQLite.
 
-Khi hoàn thiện Benchmark và Analysis, kết quả sẽ chứng minh rằng khi Latency tăng từ 1ms lên 50ms và 250ms, Communication Cost tăng mạnh và trở thành thành phần chi phối tổng thời gian xử lý Transaction. Đây là minh chứng thực nghiệm cho mô hình chi phí:
+Kết quả Benchmark chứng minh rằng Network Latency có tác động rất lớn đến hiệu năng của Distributed Transaction. Khi Latency tăng từ 1ms lên 50ms và 250ms, tổng thời gian xử lý Transaction tăng mạnh, trong khi Doing Work Time gần như ổn định. Điều này cho thấy phần tăng chủ yếu đến từ Network Waiting Time và Communication Cost.
+
+Kết quả thực nghiệm phù hợp với mô hình chi phí:
 
 ```text
 Cost = IO + CPU + Comm
 ```
+
+Trong môi trường phân tán có độ trễ cao, đặc biệt là mô hình Global hoặc Trans-Atlantic, Communication Cost có thể trở thành thành phần chi phối tổng chi phí xử lý Transaction. Vì vậy, khi thiết kế hệ thống Distributed Database, cần cân nhắc kỹ độ trễ mạng, vị trí triển khai node, chiến lược phân mảnh dữ liệu và giao thức commit được sử dụng.

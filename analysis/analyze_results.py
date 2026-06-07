@@ -54,8 +54,10 @@ def build_summary(raw):
 
 
 def chart_total_time(summary):
+    labels = summary["latency_ms"].astype(int).astype(str)
+
     plt.figure(figsize=(8, 5))
-    plt.bar(summary["latency_ms"].astype(str), summary["mean_total_time_ms"])
+    plt.bar(labels, summary["mean_total_time_ms"])
     plt.xlabel("Network Latency (ms)")
     plt.ylabel("Mean Total Transaction Time (ms)")
     plt.title("Total Transaction Time by Network Latency")
@@ -65,8 +67,10 @@ def chart_total_time(summary):
 
 
 def chart_coordination_cost(summary):
+    labels = summary["latency_ms"].astype(int).astype(str)
+
     plt.figure(figsize=(8, 5))
-    plt.bar(summary["latency_ms"].astype(str), summary["mean_coordination_cost_percent"])
+    plt.bar(labels, summary["mean_coordination_cost_percent"])
     plt.xlabel("Network Latency (ms)")
     plt.ylabel("Mean Cost of Coordination (%)")
     plt.title("Cost of Coordination by Network Latency")
@@ -76,7 +80,7 @@ def chart_coordination_cost(summary):
 
 
 def chart_work_vs_network(summary):
-    labels = summary["latency_ms"].astype(str)
+    labels = summary["latency_ms"].astype(int).astype(str)
 
     plt.figure(figsize=(8, 5))
     plt.bar(labels, summary["mean_doing_work_ms"], label="Doing Work")
@@ -106,7 +110,14 @@ def chart_mean_median_p99(summary):
         ]
     ].copy()
 
-    plot_df["latency_ms"] = plot_df["latency_ms"].astype(str)
+    plot_df["latency_ms"] = plot_df["latency_ms"].astype(int).astype(str)
+
+    plot_df = plot_df.rename(columns={
+        "mean_total_time_ms": "Mean",
+        "median_total_time_ms": "Median",
+        "p99_total_time_ms": "P99",
+    })
+
     plot_df = plot_df.set_index("latency_ms")
 
     plot_df.plot(kind="bar", figsize=(9, 5))
