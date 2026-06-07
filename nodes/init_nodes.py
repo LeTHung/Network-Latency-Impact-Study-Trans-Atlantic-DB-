@@ -111,7 +111,7 @@ def initialize_node_databases():
             count = cursor.fetchone()[0]
             print(f"Node {node}: {count} accounts -> {NODE_DATABASES[node]}")
 
-        print("Khởi tạo database cho các Participant Node thành công.")
+        print("Participant Node databases initialized successfully.")
 
     finally:
         for connection in connections.values():

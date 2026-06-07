@@ -3,6 +3,3 @@ __pycache__/
 *.pyc
 *.db
 coordinator/coordinator_log.csv
-benchmark/results_raw.csv
-benchmark/results_summary.csv
-analysis/charts/*.png
