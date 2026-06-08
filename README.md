@@ -358,7 +358,7 @@ Nhận xét chính:
 
 Điều này chứng minh trong 2PC, khi độ trễ mạng cao, phần lớn thời gian transaction nằm ở chi phí truyền thông và điều phối giữa các node.
 
-## 15. Failure Scenario: Kill Node B
+## 15. Kịch bản lỗi: Kill Node B
 
 Mô phỏng Node B bị lỗi:
 
