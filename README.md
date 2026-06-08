@@ -174,8 +174,6 @@ trans-atlantic-db/
 └── .gitignore
 ```
 
-Các file `.db`, log, kết quả benchmark và chart là file sinh ra khi chạy chương trình.
-
 ## 9. Cài đặt
 
 Tạo virtual environment:
